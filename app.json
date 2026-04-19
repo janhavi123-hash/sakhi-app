@@ -21,7 +21,7 @@
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
-      "package": "com.janhavi.sonawane25compsceeduin.sakhisapp"
+      "package": "com.sakhi.app"
     },
     "web": {
       "output": "static",
