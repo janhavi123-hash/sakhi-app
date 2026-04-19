@@ -12,13 +12,18 @@
       "supportsTablet": true
     },
     "android": {
-      "googleServicesFile": "./google-services.json",
-      "permissions": [
-      "ACCESS_FINE_LOCATION",
-      "ACCESS_COARSE_LOCATION",
-      "ACCESS_BACKGROUND_LOCATION"
-    ],
-    "config": {
+  "googleServicesFile": "./google-services.json",
+  "permissions": [
+    "ACCESS_FINE_LOCATION",
+    "ACCESS_COARSE_LOCATION",
+    "ACCESS_BACKGROUND_LOCATION",
+    "SEND_SMS",
+    "READ_CONTACTS",
+    "CALL_PHONE",
+    "RECORD_AUDIO",
+    "CAMERA"
+  ],    
+  "config": {
   "googleMaps": {
     "apiKey": "AIzaSyBfyQQVjaToUVO93st3YGgQ0aEh_JbjawY"
   }
