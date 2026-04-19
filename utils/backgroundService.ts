@@ -1,18 +1,12 @@
-import BackgroundService from 'react-native-background-actions';
 import { Accelerometer } from 'expo-sensors';
 import * as Location from 'expo-location';
 import * as Battery from 'expo-battery';
 import { Vibration, PermissionsAndroid, Platform } from 'react-native';
 import { SendDirectSms } from 'react-native-send-direct-sms';
-import {
-  getGuardiansOffline,
-  saveLastLocation,
-  getLastLocation,
-} from './guardianStorage';
+import { getGuardiansOffline, saveLastLocation, getLastLocation } from './guardianStorage';
 import { retryQueue, QueuedMessage } from './sosQueue';
 import NetInfo from '@react-native-community/netinfo';
-import { auth } from '../config/firebase';
-import { db } from '../config/firebase';
+import { auth, db } from '../config/firebase';
 import { collection, query, where, getDocs } from 'firebase/firestore';
 
 const SHAKE_THRESHOLD = 2.5;
@@ -29,6 +23,7 @@ let batteryAlertSent = false;
 let accelerometerSubscription: any = null;
 let batterySubscription: any = null;
 let locationSubscription: any = null;
+let isRunning = false;
 
 const getNumbers = async (): Promise<string[]> => {
   try {
@@ -106,16 +101,8 @@ const triggerSOS = async (reason: string) => {
     if (!numbers.length) return;
     const message = `🚨 SOS EMERGENCY! (${reason})\nI need immediate help!\nMy location:\nhttps://maps.google.com/?q=${lat},${lng}\n- Sent from SAKHI app`;
     await sendSMS(numbers, message);
-
-    const net = await NetInfo.fetch();
-    if (net.isConnected) {
-      await retryQueue(async (msg: QueuedMessage) => {
-        console.log('Retrying queued task:', msg.taskType);
-        return true;
-      });
-    }
   } catch (e) {
-    console.log('Background SOS error:', e);
+    console.log('SOS error:', e);
   }
 };
 
@@ -149,8 +136,10 @@ const triggerSafeZoneAlert = async (lat: number, lng: number) => {
   }
 };
 
-const backgroundTask = async (taskData: any) => {
-  // Step 1: Set safe zone from current location
+export const startBackgroundProtection = async () => {
+  if (isRunning) return;
+  isRunning = true;
+
   try {
     const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
     safeZoneCenter = { latitude: loc.coords.latitude, longitude: loc.coords.longitude };
@@ -160,37 +149,22 @@ const backgroundTask = async (taskData: any) => {
     if (last) safeZoneCenter = { latitude: last.lat, longitude: last.lng };
   }
 
-  // Step 2: Retry any queued tasks if online
-  try {
-    const net = await NetInfo.fetch();
-    if (net.isConnected) {
-      await retryQueue(async (msg: QueuedMessage) => {
-        console.log('Processing queued task:', msg.taskType);
-        return true;
-      });
-    }
-  } catch {}
-
-  // Step 3: Shake + Fall Detection (ONLY here, not in index.tsx)
   Accelerometer.setUpdateInterval(100);
   accelerometerSubscription = Accelerometer.addListener(({ x, y, z }) => {
     const total = Math.sqrt(x * x + y * y + z * z);
     const now = Date.now();
 
-    // Shake
     if (total > SHAKE_THRESHOLD && now - lastTriggerTime > 3000) {
       lastTriggerTime = now;
       Vibration.vibrate([0, 200, 100, 200]);
       triggerSOS('Shake Detected');
     }
 
-    // Fall Phase 1 — free fall
     if (total < FALL_FREE_FALL_THRESHOLD && !isFalling) {
       isFalling = true;
       fallTimer = setTimeout(() => { isFalling = false; }, 1000);
     }
 
-    // Fall Phase 2 — impact
     if (isFalling && total > FALL_IMPACT_THRESHOLD) {
       isFalling = false;
       clearTimeout(fallTimer);
@@ -202,7 +176,6 @@ const backgroundTask = async (taskData: any) => {
     }
   });
 
-  // Step 4: Battery Monitor
   batterySubscription = Battery.addBatteryLevelListener(async ({ batteryLevel }) => {
     const pct = Math.round(batteryLevel * 100);
     if (pct <= 20 && !batteryAlertSent) {
@@ -212,7 +185,6 @@ const backgroundTask = async (taskData: any) => {
     if (pct > 20) batteryAlertSent = false;
   });
 
-  // Step 5: Location Watch — Safe Zone
   locationSubscription = await Location.watchPositionAsync(
     { accuracy: Location.Accuracy.High, timeInterval: 10000, distanceInterval: 50 },
     async (loc) => {
@@ -228,41 +200,14 @@ const backgroundTask = async (taskData: any) => {
     }
   );
 
-  // Keep task alive forever
-  await new Promise(() => {});
-};
-
-const backgroundOptions = {
-  taskName: 'SAKHIProtection',
-  taskTitle: '🛡️ SAKHI is protecting you',
-  taskDesc: 'Monitoring shake, fall, battery & location in background',
-  taskIcon: { name: 'ic_launcher', type: 'mipmap' },
-  color: '#e11d48',
-  linkingURI: 'sakhiapp://',
-  parameters: {},
-};
-
-export const startBackgroundProtection = async () => {
-  try {
-    const isRunning = await BackgroundService.isRunning();
-    if (!isRunning) {
-      await BackgroundService.start(backgroundTask, backgroundOptions);
-      console.log('✅ SAKHI background service started');
-    }
-  } catch (e) {
-    console.log('Background start error:', e);
-  }
+  console.log('✅ SAKHI protection started');
 };
 
 export const stopBackgroundProtection = async () => {
-  try {
-    accelerometerSubscription?.remove();
-    batterySubscription?.remove();
-    locationSubscription?.remove();
-    clearTimeout(fallTimer);
-    await BackgroundService.stop();
-    console.log('🛑 SAKHI background service stopped');
-  } catch (e) {
-    console.log('Background stop error:', e);
-  }
+  isRunning = false;
+  accelerometerSubscription?.remove();
+  batterySubscription?.remove();
+  locationSubscription?.remove();
+  clearTimeout(fallTimer);
+  console.log('🛑 SAKHI protection stopped');
 };
