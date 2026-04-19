@@ -50,7 +50,7 @@ export default function ProfileScreen() {
       Alert.alert('Error', 'Please enter both name and phone number.');
       return;
     }
-    if (phone.length < 10) {
+    if (phone.length < 10 || phone.length > 13) {
       Alert.alert('Error', 'Please enter a valid phone number.');
       return;
     }
@@ -60,7 +60,8 @@ export default function ProfileScreen() {
     }
     if (!user) return;
     setLoading(true);
-    await addDoc(collection(db, 'guardians'), { uid: user.uid, name, phone });
+    const formattedPhone = phone.startsWith('+') ? phone : '+' + phone;
+await addDoc(collection(db, 'guardians'), { uid: user.uid, name, phone: formattedPhone });
     setName('');
     setPhone('');
     setLoading(false);

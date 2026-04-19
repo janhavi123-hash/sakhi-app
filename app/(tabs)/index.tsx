@@ -25,10 +25,12 @@ import {
   useSpeechRecognitionEvent,
 } from 'expo-speech-recognition';
 import { startBackgroundProtection, stopBackgroundProtection } from '../../utils/backgroundService';
+import { Accelerometer } from 'expo-sensors';
 
 const SAFE_ZONE_RADIUS_METERS = 500;
 const { width } = Dimensions.get('window');
 const VOICE_KEYWORDS = ['help', 'bachao', 'emergency'];
+const lastShakeTime = useRef(0);
 
 export default function HomeScreen() {
   const router = useRouter();
@@ -81,6 +83,43 @@ export default function HomeScreen() {
       glowAnim.setValue(0);
     }
   }, [sosStatus]);
+
+  useEffect(() => {
+  if (!authReady) return;
+  let isFalling = false;
+  let fallTimer: any = null;
+
+  Accelerometer.setUpdateInterval(100);
+  const sub = Accelerometer.addListener(({ x, y, z }) => {
+    const total = Math.sqrt(x * x + y * y + z * z);
+    const now = Date.now();
+
+    if (total > 2.5 && now - lastShakeTime.current > 3000) {
+      lastShakeTime.current = now;
+      Vibration.vibrate([0, 200, 100, 200]);
+      triggerSOSWithCountdown();
+    }
+
+    if (total < 0.3 && !isFalling) {
+      isFalling = true;
+      fallTimer = setTimeout(() => {
+        isFalling = false;
+      }, 1000);
+    }
+
+    if (isFalling && total > 2.8) {
+      isFalling = false;
+      clearTimeout(fallTimer);
+      if (now - lastShakeTime.current > 3000) {
+        lastShakeTime.current = now;
+        Vibration.vibrate([0, 500, 200, 500]);
+        triggerSOSWithCountdown();
+      }
+    }
+  });
+
+  return () => sub.remove();
+}, [authReady]);
 
   // 🌐 Offline monitor
   useEffect(() => {

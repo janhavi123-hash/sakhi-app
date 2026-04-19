@@ -1,7 +1,6 @@
-import { Accelerometer } from 'expo-sensors';
 import * as Location from 'expo-location';
 import * as Battery from 'expo-battery';
-import { Vibration, PermissionsAndroid, Platform } from 'react-native';
+import { Platform, PermissionsAndroid } from 'react-native';
 import { SendDirectSms } from 'react-native-send-direct-sms';
 import { getGuardiansOffline, saveLastLocation, getLastLocation } from './guardianStorage';
 import { retryQueue, QueuedMessage } from './sosQueue';
@@ -9,18 +8,11 @@ import NetInfo from '@react-native-community/netinfo';
 import { auth, db } from '../config/firebase';
 import { collection, query, where, getDocs } from 'firebase/firestore';
 
-const SHAKE_THRESHOLD = 2.5;
-const FALL_FREE_FALL_THRESHOLD = 0.3;
-const FALL_IMPACT_THRESHOLD = 2.8;
 const SAFE_ZONE_RADIUS_METERS = 500;
 
-let isFalling = false;
-let fallTimer: any = null;
-let lastTriggerTime = 0;
 let safeZoneCenter: { latitude: number; longitude: number } | null = null;
 let safeZoneAlertSent = false;
 let batteryAlertSent = false;
-let accelerometerSubscription: any = null;
 let batterySubscription: any = null;
 let locationSubscription: any = null;
 let isRunning = false;
@@ -82,30 +74,6 @@ const getDistance = (lat1: number, lon1: number, lat2: number, lon2: number): nu
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 };
 
-const triggerSOS = async (reason: string) => {
-  try {
-    let lat: number;
-    let lng: number;
-    try {
-      const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
-      lat = loc.coords.latitude;
-      lng = loc.coords.longitude;
-      await saveLastLocation({ lat, lng });
-    } catch {
-      const last = await getLastLocation();
-      if (!last) return;
-      lat = last.lat;
-      lng = last.lng;
-    }
-    const numbers = await getNumbers();
-    if (!numbers.length) return;
-    const message = `🚨 SOS EMERGENCY! (${reason})\nI need immediate help!\nMy location:\nhttps://maps.google.com/?q=${lat},${lng}\n- Sent from SAKHI app`;
-    await sendSMS(numbers, message);
-  } catch (e) {
-    console.log('SOS error:', e);
-  }
-};
-
 const triggerBatteryAlert = async (pct: number) => {
   try {
     let locationStr = 'Unavailable';
@@ -149,33 +117,6 @@ export const startBackgroundProtection = async () => {
     if (last) safeZoneCenter = { latitude: last.lat, longitude: last.lng };
   }
 
-  Accelerometer.setUpdateInterval(100);
-  accelerometerSubscription = Accelerometer.addListener(({ x, y, z }) => {
-    const total = Math.sqrt(x * x + y * y + z * z);
-    const now = Date.now();
-
-    if (total > SHAKE_THRESHOLD && now - lastTriggerTime > 3000) {
-      lastTriggerTime = now;
-      Vibration.vibrate([0, 200, 100, 200]);
-      triggerSOS('Shake Detected');
-    }
-
-    if (total < FALL_FREE_FALL_THRESHOLD && !isFalling) {
-      isFalling = true;
-      fallTimer = setTimeout(() => { isFalling = false; }, 1000);
-    }
-
-    if (isFalling && total > FALL_IMPACT_THRESHOLD) {
-      isFalling = false;
-      clearTimeout(fallTimer);
-      if (now - lastTriggerTime > 3000) {
-        lastTriggerTime = now;
-        Vibration.vibrate([0, 500, 200, 500, 200, 500]);
-        triggerSOS('Fall Detected');
-      }
-    }
-  });
-
   batterySubscription = Battery.addBatteryLevelListener(async ({ batteryLevel }) => {
     const pct = Math.round(batteryLevel * 100);
     if (pct <= 20 && !batteryAlertSent) {
@@ -205,9 +146,7 @@ export const startBackgroundProtection = async () => {
 
 export const stopBackgroundProtection = async () => {
   isRunning = false;
-  accelerometerSubscription?.remove();
   batterySubscription?.remove();
   locationSubscription?.remove();
-  clearTimeout(fallTimer);
   console.log('🛑 SAKHI protection stopped');
 };
