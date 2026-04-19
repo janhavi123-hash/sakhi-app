@@ -7,12 +7,13 @@
     "icon": "./assets/images/icon.png",
     "scheme": "sakhisapp",
     "userInterfaceStyle": "automatic",
-    "newArchEnabled": true,
+    "newArchEnabled": false,
     "ios": {
       "supportsTablet": true
     },
     "android": {
   "googleServicesFile": "./google-services.json",
+  "targetSdkVersion":33,
   "permissions": [
     "ACCESS_FINE_LOCATION",
     "ACCESS_COARSE_LOCATION",
