@@ -2,7 +2,7 @@ import { Accelerometer } from 'expo-sensors';
 import * as Location from 'expo-location';
 import * as Battery from 'expo-battery';
 import { Vibration, PermissionsAndroid, Platform } from 'react-native';
-import { SendDirectSms } from 'react-native-send-direct-sms';
+import *  as SMS from 'expo-sms';
 import { getGuardiansOffline, saveLastLocation, getLastLocation } from './guardianStorage';
 import { retryQueue, QueuedMessage } from './sosQueue';
 import NetInfo from '@react-native-community/netinfo';
@@ -59,17 +59,10 @@ const requestSmsPermission = async (): Promise<boolean> => {
 };
 
 const sendSMS = async (numbers: string[], message: string) => {
-  const hasPermission = await requestSmsPermission();
-  if (!hasPermission) return;
-  for (const number of numbers) {
-    try {
-      await SendDirectSms(number, message);
-    } catch (e) {
-      console.log('SMS error for', number, ':', e);
-    }
-  }
+  const isAvailable = await SMS.isAvailableAsync();
+  if (!isAvailable) return;
+  await SMS.sendSMSAsync(numbers, message);
 };
-
 const getDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
   const R = 6371000;
   const dLat = ((lat2 - lat1) * Math.PI) / 180;

@@ -22,7 +22,9 @@
     "READ_CONTACTS",
     "CALL_PHONE",
     "RECORD_AUDIO",
-    "CAMERA"
+    "CAMERA",
+    "ACTIVITY_RECOGNITION",
+    "BODY_SENSORS"
   ],    
   "config": {
   "googleMaps": {

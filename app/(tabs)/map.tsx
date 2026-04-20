@@ -171,36 +171,30 @@ export default function MapScreen() {
     Alert.alert('✅ Sent!', `Location shared with ${numbers.length} guardian(s).`);
   };
 
-  const fetchNearbyPlaces = async () => {
-    if (!location) return;
-    try {
-      const { latitude, longitude } = location;
-      const overpassQuery = `
-        [out:json];
-        (
-          node["amenity"="police"](around:3000,${latitude},${longitude});
-          node["amenity"="hospital"](around:3000,${latitude},${longitude});
-        );
-        out body 15;
-      `;
-      const res = await fetch('https://overpass-api.de/api/interpreter', {
-        method: 'POST', body: overpassQuery,
-      });
-      const data = await res.json();
-      const fetched: Place[] = data.elements.map((el: any) => ({
-        id: String(el.id),
-        name: el.tags?.name || (el.tags?.amenity === 'police' ? 'Police Station' : 'Hospital'),
-        lat: el.lat,
-        lon: el.lon,
-        type: el.tags?.amenity === 'police' ? 'police' : 'hospital',
-        phone: el.tags?.phone || el.tags?.['contact:phone'] || null,
-      }));
-      setPlaces(fetched);
-      setShowPlacesModal(true);
-    } catch {
-      Alert.alert('Error', 'Could not fetch nearby places.');
-    }
-  };
+const fetchNearbyPlaces = async () => {
+  if (!location) return;
+  try {
+    const { latitude, longitude } = location;
+    const overpassQuery = `[out:json][timeout:10];(node["amenity"="police"](around:3000,${latitude},${longitude});node["amenity"="hospital"](around:3000,${latitude},${longitude}););out body 10;`;
+    const res = await fetch('https://overpass-api.de/api/interpreter', {
+      method: 'POST',
+      body: overpassQuery,
+    });
+    const data = await res.json();
+    const fetched: Place[] = data.elements.map((el: any) => ({
+      id: String(el.id),
+      name: el.tags?.name || (el.tags?.amenity === 'police' ? 'Police Station' : 'Hospital'),
+      lat: el.lat,
+      lon: el.lon,
+      type: el.tags?.amenity === 'police' ? 'police' : 'hospital',
+      phone: el.tags?.phone || el.tags?.['contact:phone'] || null,
+    }));
+    setPlaces(fetched);
+    setShowPlacesModal(true);
+  } catch {
+    Alert.alert('Error', 'Could not fetch nearby places. Check internet.');
+  }
+};
 
   const callPlace = (phone: string) => {
     Alert.alert('Call', `Call ${phone}?`, [

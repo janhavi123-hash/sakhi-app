@@ -319,32 +319,26 @@ export default function HomeScreen() {
     }
   };
 
-  const sendSOS = async () => {
-    try {
-      setSosStatus('sending');
-      let lat: number, lng: number;
-      try {
-        const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
-        lat = loc.coords.latitude; lng = loc.coords.longitude;
-      } catch {
-        const last = await getLastLocation();
-        if (!last) { setSosStatus('idle'); return; }
-        lat = last.lat; lng = last.lng;
-      }
-      const numbers = await getNumbers();
-      if (!numbers.length) { setSosStatus('idle'); return; }
-      const message = `🚨 SOS EMERGENCY!\nI need immediate help!\nMy location:\nhttps://maps.google.com/?q=${lat},${lng}\n- Sent from SAKHI app`;
-      await sendDirectSMS(numbers, message);
-      setSosStatus('sent');
-      setTimeout(() => {
-        setSosStatus('idle');
-        startVoiceListening();
-      }, 3000);
-    } catch (e) {
-      console.log('SOS error:', e);
+const sendSOS = async () => {
+  try {
+    setSosStatus('sending');
+    const last = await getLastLocation();
+    const lat = last?.lat;
+    const lng = last?.lng;
+    if (!lat || !lng) { setSosStatus('idle'); return; }
+    const numbers = await getNumbers();
+    if (!numbers.length) { setSosStatus('idle'); return; }
+    const message = `🚨 SOS EMERGENCY!\nI need immediate help!\nMy location:\nhttps://maps.google.com/?q=${lat},${lng}\n- Sent from SAKHI app`;
+    await sendDirectSMS(numbers, message);
+    setSosStatus('sent');
+    setTimeout(() => {
       setSosStatus('idle');
-    }
-  };
+      startVoiceListening();
+    }, 3000);
+  } catch (e) {
+    setSosStatus('idle');
+  }
+};
 
   const sendBatteryAlert = async (pct: number) => {
     try {
