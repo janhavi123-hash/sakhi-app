@@ -9,6 +9,10 @@ import * as Speech from 'expo-speech';
 import { auth, db } from '../../config/firebase';
 import { collection, query, where, getDocs } from 'firebase/firestore';
 import { Ionicons } from '@expo/vector-icons';
+import { getGuardiansOffline, saveGuardiansOffline } from '../../utils/guardianStorage';
+import { useFocusEffect } from 'expo-router';
+import { triggerSOS, setTriggerCallback } from '../../utils/backgroundService';
+import { useCallback } from 'react';
 
 type Guardian = { id: string; name: string; phone: string; };
 
@@ -37,12 +41,19 @@ export default function FakeCallScreen() {
   const soundRef = useRef<Audio.Sound | null>(null);
   const speechTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
 
-  useEffect(() => {
+// Reload guardians every time tab is opened
+useFocusEffect(
+  useCallback(() => {
     fetchGuardians();
+    setTriggerCallback((reason) => {
+      triggerSOS(reason);
+    });
     return () => {
       stopEverything();
+      setTriggerCallback(() => {});
     };
-  }, []);
+  }, [])
+);
 
   useEffect(() => {
     if (callState === 'ringing') {
@@ -73,15 +84,40 @@ export default function FakeCallScreen() {
     }
   }, [callState]);
 
-  const fetchGuardians = async () => {
+const fetchGuardians = async () => {
+  setLoading(true);
+  try {
+    // First load from cache immediately so screen isn't empty
+    const cached = await getGuardiansOffline();
+    if (cached.length > 0) setGuardians(cached);
+
+    // Then fetch fresh from Firestore
     const user = auth.currentUser;
-    if (!user) return;
-    const q = query(collection(db, 'guardians'), where('uid', '==', user.uid));
+    if (!user) {
+      // Wait for auth to be ready
+      await new Promise(resolve => setTimeout(resolve, 1500));
+      const retryUser = auth.currentUser;
+      if (!retryUser) {
+        setLoading(false);
+        return;
+      }
+    }
+
+    const currentUser = auth.currentUser;
+    if (!currentUser) { setLoading(false); return; }
+
+    const q = query(collection(db, 'guardians'), where('uid', '==', currentUser.uid));
     const snap = await getDocs(q);
-    const data = snap.docs.map(d => ({ id: d.id, ...d.data() })) as Guardian[];
-    setGuardians(data);
+    const fresh = snap.docs.map(d => ({ id: d.id, ...d.data() })) as Guardian[];
+    await saveGuardiansOffline(fresh);
+    setGuardians(fresh);
+  } catch {
+    const cached = await getGuardiansOffline();
+    setGuardians(cached);
+  } finally {
     setLoading(false);
-  };
+  }
+};
 
   const playRingtone = async () => {
     try {

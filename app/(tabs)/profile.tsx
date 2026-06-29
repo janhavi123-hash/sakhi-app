@@ -12,6 +12,7 @@ import {
 } from 'firebase/firestore';
 import { useRouter } from 'expo-router';
 import { saveGuardiansOffline } from '../../utils/guardianStorage';
+import { triggerSOS, setTriggerCallback } from '../../utils/backgroundService';
 
 type Guardian = { id: string; name: string; phone: string; };
 
@@ -23,6 +24,13 @@ export default function ProfileScreen() {
   const [userName, setUserName] = useState('');
   const router = useRouter();
   const user = auth.currentUser;
+
+  useEffect(() => {
+  setTriggerCallback((reason) => {
+    triggerSOS(reason);
+  });
+  return () => setTriggerCallback(() => {});
+}, []);
 
   useEffect(() => {
     if (!user) return;
@@ -46,26 +54,29 @@ export default function ProfileScreen() {
   }, []);
 
   const addGuardian = async () => {
-    if (!name || !phone) {
-      Alert.alert('Error', 'Please enter both name and phone number.');
-      return;
-    }
-    if (phone.length < 10 || phone.length > 13) {
-      Alert.alert('Error', 'Please enter a valid phone number.');
-      return;
-    }
-    if (guardians.length >= 5) {
-      Alert.alert('Error', 'Maximum 5 guardians allowed.');
-      return;
-    }
-    if (!user) return;
-    setLoading(true);
-    const formattedPhone = phone.startsWith('+') ? phone : '+' + phone;
-await addDoc(collection(db, 'guardians'), { uid: user.uid, name, phone: formattedPhone });
-    setName('');
-    setPhone('');
-    setLoading(false);
-  };
+  if (!name || !phone) {
+    Alert.alert('Error', 'Please enter both name and phone number.');
+    return;
+  }
+ const digitsOnly = phone.replace(/\D/g, '');
+const localNumber = digitsOnly.startsWith('91') ? digitsOnly.slice(2) : digitsOnly;
+if (localNumber.length !== 10) {
+  Alert.alert('Error', 'Please enter a valid 10-digit mobile number (with or without country code 91).');
+  return;
+}
+  if (guardians.length >= 5) {
+    Alert.alert('Error', 'Maximum 5 guardians allowed.');
+    return;
+  }
+  if (!user) return;
+
+  const formattedPhone = phone.startsWith('+') ? phone : '+' + phone;
+  setName('');
+  setPhone('');
+
+  await addDoc(collection(db, 'guardians'), { uid: user.uid, name, phone: formattedPhone });
+  // onSnapshot already listening — UI updates automatically when Firestore confirms
+};
 
   const deleteGuardian = async (id: string) => {
     Alert.alert('Remove Guardian', 'Are you sure?', [
@@ -134,13 +145,13 @@ await addDoc(collection(db, 'guardians'), { uid: user.uid, name, phone: formatte
             onChangeText={setName}
           />
           <TextInput
-            style={styles.input}
-            placeholder="Phone with country code (e.g. 919876543210)"
-            placeholderTextColor="#555"
-            value={phone}
-            onChangeText={setPhone}
-            keyboardType="phone-pad"
-          />
+  style={[styles.input, { height: 50 }]}
+  placeholder="Phone e.g. 919876543210"
+  placeholderTextColor="#888"
+  value={phone}
+  onChangeText={setPhone}
+  keyboardType="phone-pad"
+/>
           <TouchableOpacity style={styles.addBtn} onPress={addGuardian} disabled={loading}>
             <Text style={styles.addBtnText}>{loading ? 'Adding...' : '+ Add Guardian'}</Text>
           </TouchableOpacity>

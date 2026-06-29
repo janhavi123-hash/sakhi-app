@@ -1,7 +1,7 @@
 import 'react-native-reanimated';
 import {
   View, Text, StyleSheet, TouchableOpacity,
-  Animated, Vibration, Dimensions, PermissionsAndroid, Platform
+  Animated, Vibration, Dimensions
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useState, useEffect, useRef } from 'react';
@@ -10,21 +10,25 @@ import { auth } from '../../config/firebase';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
 import * as Location from 'expo-location';
 import * as Battery from 'expo-battery';
-import { collection, query, where, getDocs } from 'firebase/firestore';
-import { db } from '../../config/firebase';
 import {
-  getGuardiansOffline,
   saveGuardiansOffline,
   saveLastLocation,
   getLastLocation,
 } from '../../utils/guardianStorage';
 import NetInfo from '@react-native-community/netinfo';
-import { SendDirectSms } from 'react-native-send-direct-sms';
 import {
   ExpoSpeechRecognitionModule,
   useSpeechRecognitionEvent,
 } from 'expo-speech-recognition';
 import { startBackgroundProtection, stopBackgroundProtection } from '../../utils/backgroundService';
+import { setTriggerCallback } from '../../utils/backgroundService';
+import { triggerSOS } from '../../utils/backgroundService';
+// Make sure this line exists:
+import { retryQueue, sendWhatsAppMessage } from '../../utils/sosQueue';
+import { db } from '../../config/firebase';
+import { collection, query, where, getDocs } from 'firebase/firestore';
+import { useFocusEffect } from 'expo-router';
+import { useCallback } from 'react';
 
 const SAFE_ZONE_RADIUS_METERS = 500;
 const { width } = Dimensions.get('window');
@@ -51,7 +55,14 @@ export default function HomeScreen() {
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const glowAnim = useRef(new Animated.Value(0)).current;
   const shieldAnim = useRef(new Animated.Value(0)).current;
-
+  
+useFocusEffect(
+  useCallback(() => {
+    setTriggerCallback((reason) => {
+      if (sosStatusRef.current === 'idle') triggerSOSWithCountdown();
+    });
+  }, [])
+);
   // Keep sosStatusRef in sync
   useEffect(() => {
     sosStatusRef.current = sosStatus;
@@ -83,11 +94,25 @@ export default function HomeScreen() {
     }
   }, [sosStatus]);
 
-  // 🌐 Offline monitor
-  useEffect(() => {
-    const unsub = NetInfo.addEventListener(state => setIsOffline(!state.isConnected));
-    return () => unsub();
-  }, []);
+  // 🌐 Offline monitor + retry queue on reconnect
+useEffect(() => {
+  const unsub = NetInfo.addEventListener(async (state) => {
+    setIsOffline(!state.isConnected);
+    if (state.isConnected) {
+      await retryQueue(async (msg) => {
+        if (msg.taskType === 'WHATSAPP_LOCATION_LINK') {
+          return await sendWhatsAppMessage(
+            msg.recipient,
+            String(msg.payload.message)
+          );
+        }
+        return false;
+      });
+    }
+  });
+  return () => unsub();
+}, []);
+
 
   // 🔐 Auth
   useEffect(() => {
@@ -99,23 +124,23 @@ export default function HomeScreen() {
   }, []);
 
   // 💾 Cache guardians
-  useEffect(() => {
-    if (!authReady) return;
-    const load = async () => {
+useEffect(() => {
+  if (!authReady) return;
+  const load = async () => {
+    try {
       const net = await NetInfo.fetch();
-      if (net.isConnected) {
-        try {
-          const user = auth.currentUser;
-          if (user) {
-            const q = query(collection(db, 'guardians'), where('uid', '==', user.uid));
-            const snap = await getDocs(q);
-            if (!snap.empty) await saveGuardiansOffline(snap.docs.map(d => d.data()));
-          }
-        } catch {}
-      }
-    };
-    load();
-  }, [authReady]);
+      if (!net.isConnected) return;
+      const user = auth.currentUser;
+      if (!user) return;  // ← this line stops the auth error
+      const q = query(collection(db, 'guardians'), where('uid', '==', user.uid));
+      const snap = await getDocs(q);
+      if (!snap.empty) await saveGuardiansOffline(snap.docs.map((d: any) => d.data()));
+    } catch (e) {
+      console.log('Guardian cache error:', e);  // silent, no crash
+    }
+  };
+  load();
+}, [authReady]);
 
   // 🛡️ Start background protection once auth is ready
   useEffect(() => {
@@ -205,7 +230,7 @@ export default function HomeScreen() {
   // 🎤 Restart voice after it ends (if not in SOS)
   useSpeechRecognitionEvent('end', () => {
     if (sosStatusRef.current === 'idle') {
-      setTimeout(() => startVoiceListening(), 2000);
+      setTimeout(() => startVoiceListening(), 500);
     }
   });
 
@@ -276,95 +301,42 @@ export default function HomeScreen() {
     return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   };
 
-  const requestSmsPermission = async (): Promise<boolean> => {
-    if (Platform.OS !== 'android') return false;
-    try {
-      const granted = await PermissionsAndroid.request(
-        PermissionsAndroid.PERMISSIONS.SEND_SMS,
-        {
-          title: 'SMS Permission',
-          message: 'SAKHI needs SMS permission to send emergency alerts automatically.',
-          buttonPositive: 'Allow',
-        }
-      );
-      return granted === PermissionsAndroid.RESULTS.GRANTED;
-    } catch { return false; }
-  };
-
-  const getNumbers = async (): Promise<string[]> => {
-    try {
-      const net = await NetInfo.fetch();
-      if (net.isConnected) {
-        const user = auth.currentUser;
-        if (user) {
-          const q = query(collection(db, 'guardians'), where('uid', '==', user.uid));
-          const snap = await getDocs(q);
-          if (!snap.empty) return snap.docs.map(d => d.data().phone);
-        }
-      }
-    } catch {}
-    const offline = await getGuardiansOffline();
-    return offline.map((g: any) => g.phone);
-  };
-
-  const sendDirectSMS = async (numbers: string[], message: string) => {
-    const hasPermission = await requestSmsPermission();
-    if (!hasPermission) return;
-    for (const number of numbers) {
-      try {
-        await SendDirectSms(number, message);
-      } catch (e) {
-        console.log('SMS error for', number, e);
-      }
-    }
-  };
-
 const sendSOS = async () => {
+  setSosStatus('sending');
   try {
-    setSosStatus('sending');
-    const last = await getLastLocation();
-    const lat = last?.lat;
-    const lng = last?.lng;
-    if (!lat || !lng) { setSosStatus('idle'); return; }
-    const numbers = await getNumbers();
-    if (!numbers.length) { setSosStatus('idle'); return; }
-    const message = `🚨 SOS EMERGENCY!\nI need immediate help!\nMy location:\nhttps://maps.google.com/?q=${lat},${lng}\n- Sent from SAKHI app`;
-    await sendDirectSMS(numbers, message);
+    await triggerSOS('Manual SOS');
     setSosStatus('sent');
+  } catch (e) {
+    console.log('SOS error:', e);
+    setSosStatus('idle');
+  } finally {
     setTimeout(() => {
       setSosStatus('idle');
       startVoiceListening();
     }, 3000);
-  } catch (e) {
-    setSosStatus('idle');
   }
 };
 
   const sendBatteryAlert = async (pct: number) => {
+  try {
+    let locationStr = 'Unavailable';
     try {
-      let locationStr = 'Unavailable';
-      try {
-        const loc = await Location.getCurrentPositionAsync({});
-        locationStr = `https://maps.google.com/?q=${loc.coords.latitude},${loc.coords.longitude}`;
-      } catch {
-        const last = await getLastLocation();
-        if (last) locationStr = `https://maps.google.com/?q=${last.lat},${last.lng}`;
-      }
-      const numbers = await getNumbers();
-      if (!numbers.length) return;
-      const msg = `🔋 Battery Alert!\n${auth.currentUser?.email || 'User'} battery at ${pct}%\nLocation: ${locationStr}`;
-      await sendDirectSMS(numbers, msg);
-    } catch (e) { console.log('Battery alert error:', e); }
-  };
+      const loc = await Location.getCurrentPositionAsync({});
+      locationStr = `https://maps.google.com/?q=${loc.coords.latitude},${loc.coords.longitude}`;
+    } catch {
+      const last = await getLastLocation();
+      if (last) locationStr = `https://maps.google.com/?q=${last.lat},${last.lng}`;
+    }
+    // Use triggerSOS instead — it handles numbers + SMS internally
+    await triggerSOS(`Battery Low ${pct}%`);
+  } catch (e) { console.log('Battery alert error:', e); }
+};
 
   const sendSafeZoneAlert = async (lat: number, lon: number) => {
-    try {
-      const numbers = await getNumbers();
-      if (!numbers.length) return;
-      const msg = `📍 Safe Zone Alert!\n${auth.currentUser?.email || 'User'} left safe area!\nLocation: https://maps.google.com/?q=${lat},${lon}`;
-      await sendDirectSMS(numbers, msg);
-    } catch (e) { console.log('Safe zone error:', e); }
-  };
+  try {
+    await triggerSOS('Safe Zone Exited');
+  } catch (e) { console.log('Safe zone error:', e); }
+};
 
   const getGreeting = () => {
     const h = new Date().getHours();

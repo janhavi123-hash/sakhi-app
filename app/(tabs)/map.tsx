@@ -5,6 +5,7 @@ import * as Location from 'expo-location';
 import * as SMS from 'expo-sms';
 import { auth, db } from '../../config/firebase';
 import { collection, query, where, getDocs } from 'firebase/firestore';
+import { triggerSOS, setTriggerCallback } from '../../utils/backgroundService';
 
 type Place = {
   id: string;
@@ -34,6 +35,13 @@ export default function MapScreen() {
   const [sosTriggered, setSosTriggered] = useState(false);
   const mapRef = useRef<MapView>(null);
   const walkTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+  setTriggerCallback((reason) => {
+    triggerSOS(reason);
+  });
+  return () => setTriggerCallback(() => {});
+}, []);
 
   useEffect(() => {
     let subscriber: Location.LocationSubscription;
@@ -101,43 +109,42 @@ export default function MapScreen() {
     }
   };
 
-  const startSafeWalk = () => {
-    if (!destCoord) {
-      Alert.alert('No Destination', 'Please search and select a destination first.');
-      return;
-    }
-    const mins = parseInt(timerMinutes);
-    if (isNaN(mins) || mins < 1) {
-      Alert.alert('Invalid Time', 'Please enter a valid time in minutes.');
-      return;
-    }
-    setShowWalkModal(false);
-    setWalkActive(true);
-    setSosTriggered(false);
-    setWalkSeconds(mins * 60);
-    walkTimer.current = setInterval(() => {
-      setWalkSeconds(prev => {
-        if (prev <= 1) {
-          clearInterval(walkTimer.current!);
-          setWalkActive(false);
-          setSosTriggered(true);
-          triggerSOS();
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-  };
+  // Add this ref at top with other refs:
+const walkEndTime = useRef<number | null>(null);
 
-  const triggerSOS = async () => {
-    if (!location) return;
-    const numbers = await getGuardianNumbers();
-    if (numbers.length === 0) return;
-    const isAvailable = await SMS.isAvailableAsync();
-    if (!isAvailable) return;
-    const message = `🚨 SOS! Safe Walk timer expired!\nI may be in danger at:\nhttps://maps.google.com/?q=${location.latitude},${location.longitude}\n- Sent from SAKHI app`;
-    await SMS.sendSMSAsync(numbers, message);
-  };
+// Replace startSafeWalk:
+const startSafeWalk = () => {
+  if (!destCoord) {
+    Alert.alert('No Destination', 'Please search and select a destination first.');
+    return;
+  }
+  const mins = parseInt(timerMinutes);
+  if (isNaN(mins) || mins < 1) {
+    Alert.alert('Invalid Time', 'Please enter a valid time in minutes.');
+    return;
+  }
+  setShowWalkModal(false);
+  setWalkActive(true);
+  setSosTriggered(false);
+
+  // Store absolute end time instead of counting down
+  const endTime = Date.now() + mins * 60 * 1000;
+  walkEndTime.current = endTime;
+  setWalkSeconds(mins * 60);
+
+  walkTimer.current = setInterval(() => {
+    const remaining = Math.ceil((walkEndTime.current! - Date.now()) / 1000);
+    if (remaining <= 0) {
+      clearInterval(walkTimer.current!);
+      setWalkActive(false);
+      setSosTriggered(true);
+      setWalkSeconds(0);
+      triggerSOS('Safe Walk Expired');
+    } else {
+      setWalkSeconds(remaining);
+    }
+  }, 1000);
+};
 
   const imSafe = () => {
     if (walkTimer.current) clearInterval(walkTimer.current);
@@ -175,12 +182,38 @@ const fetchNearbyPlaces = async () => {
   if (!location) return;
   try {
     const { latitude, longitude } = location;
-    const overpassQuery = `[out:json][timeout:10];(node["amenity"="police"](around:3000,${latitude},${longitude});node["amenity"="hospital"](around:3000,${latitude},${longitude}););out body 10;`;
-    const res = await fetch('https://overpass-api.de/api/interpreter', {
-      method: 'POST',
-      body: overpassQuery,
-    });
-    const data = await res.json();
+    const overpassQuery = `[out:json][timeout:25];(node["amenity"="police"](around:5000,${latitude},${longitude});node["amenity"="hospital"](around:5000,${latitude},${longitude}););out body 15;`;
+
+    // Try multiple Overpass servers
+    const servers = [
+      'https://overpass-api.de/api/interpreter',
+      'https://overpass.kumi.systems/api/interpreter',
+      'https://maps.mail.ru/osm/tools/overpass/api/interpreter',
+    ];
+
+    let data = null;
+    for (const server of servers) {
+      try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 8000);
+        const res = await fetch(server, {
+          method: 'POST',
+          body: overpassQuery,
+          signal: controller.signal,
+        });
+        clearTimeout(timeout);
+        data = await res.json();
+        if (data?.elements) break; // success, stop trying
+      } catch {
+        continue; // try next server
+      }
+    }
+
+    if (!data?.elements) {
+      Alert.alert('Error', 'Could not fetch nearby places. Try again.');
+      return;
+    }
+
     const fetched: Place[] = data.elements.map((el: any) => ({
       id: String(el.id),
       name: el.tags?.name || (el.tags?.amenity === 'police' ? 'Police Station' : 'Hospital'),
@@ -189,9 +222,14 @@ const fetchNearbyPlaces = async () => {
       type: el.tags?.amenity === 'police' ? 'police' : 'hospital',
       phone: el.tags?.phone || el.tags?.['contact:phone'] || null,
     }));
+
     setPlaces(fetched);
     setShowPlacesModal(true);
-  } catch {
+
+    if (fetched.length === 0) {
+      Alert.alert('No places found', 'No police stations or hospitals found within 5km.');
+    }
+  } catch (e) {
     Alert.alert('Error', 'Could not fetch nearby places. Check internet.');
   }
 };
@@ -378,52 +416,76 @@ const fetchNearbyPlaces = async () => {
       </Modal>
 
       {/* Nearby Places Modal */}
-      <Modal visible={showPlacesModal} transparent animationType="slide">
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalBox}>
-            <Text style={styles.modalTitle}>🏥 Nearby Safe Places</Text>
-            <Text style={{ color: '#888', marginBottom: 10, fontSize: 12 }}>🔵 Police  🟢 Hospital</Text>
+<Modal visible={showPlacesModal} transparent animationType="slide">
+  <View style={styles.modalOverlay}>
+    <View style={styles.modalBox}>
 
-            {/* Emergency Numbers */}
-            <View style={styles.callRow}>
-              <TouchableOpacity style={styles.callBtn} onPress={() => callEmergency('100', 'Police')}>
-                <Text style={styles.callBtnText}>📞 Police 100</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={[styles.callBtn, { backgroundColor: '#16a34a' }]} onPress={() => callEmergency('108', 'Ambulance')}>
-                <Text style={styles.callBtnText}>📞 Ambulance 108</Text>
-              </TouchableOpacity>
-            </View>
+      {/* Header with close button */}
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+        <Text style={styles.modalTitle}>🏥 Nearby Safe Places</Text>
+        <TouchableOpacity
+          onPress={() => setShowPlacesModal(false)}
+          style={{ backgroundColor: '#e63946', width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center' }}
+        >
+          <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 18 }}>✕</Text>
+        </TouchableOpacity>
+      </View>
 
-            <FlatList
-              data={places}
-              keyExtractor={item => item.id}
-              style={{ maxHeight: 300 }}
-              ListEmptyComponent={<Text style={{ color: '#555', textAlign: 'center' }}>No places found nearby.</Text>}
-              renderItem={({ item }) => (
-                <View style={styles.placeCard}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.placeName}>
-                      {item.type === 'police' ? '🔵' : '🟢'} {item.name}
-                    </Text>
-                    {item.phone && (
-                      <Text style={styles.placePhone}>📞 {item.phone}</Text>
-                    )}
-                  </View>
-                  {item.phone && (
-                    <TouchableOpacity style={styles.callSmallBtn} onPress={() => callPlace(item.phone!)}>
-                      <Text style={styles.callSmallText}>Call</Text>
-                    </TouchableOpacity>
-                  )}
-                </View>
-              )}
-            />
+      <Text style={{ color: '#888', marginBottom: 10, fontSize: 12 }}>🔵 Police  🟢 Hospital</Text>
 
-            <TouchableOpacity onPress={() => setShowPlacesModal(false)}>
-              <Text style={styles.cancelText}>Close</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
+      {/* Emergency Numbers */}
+      <View style={styles.callRow}>
+        <TouchableOpacity style={styles.callBtn} onPress={() => callEmergency('100', 'Police')}>
+          <Text style={styles.callBtnText}>📞 Police 100</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={[styles.callBtn, { backgroundColor: '#16a34a' }]} onPress={() => callEmergency('108', 'Ambulance')}>
+          <Text style={styles.callBtnText}>📞 Ambulance 108</Text>
+        </TouchableOpacity>
+      </View>
+
+      <FlatList
+        data={places}
+        keyExtractor={item => item.id}
+        style={{ maxHeight: 300 }}
+        ListEmptyComponent={
+          <Text style={{ color: '#555', textAlign: 'center' }}>
+            No places found nearby.
+          </Text>
+        }
+     renderItem={({ item }) => {
+  const defaultPhone = item.type === 'police' ? '100' : '108';
+  const phoneToCall = item.phone || defaultPhone;
+  return (
+    <View style={styles.placeCard}>
+      <View style={{ flex: 1 }}>
+        <Text style={styles.placeName}>
+          {item.type === 'police' ? '🔵' : '🟢'} {item.name}
+        </Text>
+        <Text style={styles.placePhone}>
+          📞 {phoneToCall}
+        </Text>
+      </View>
+      <TouchableOpacity
+        style={styles.callSmallBtn}
+        onPress={() => Linking.openURL(`tel:${phoneToCall}`)}
+      >
+        <Text style={styles.callSmallText}>Call</Text>
+      </TouchableOpacity>
+    </View>
+  );
+}}
+      />
+
+      <TouchableOpacity
+        style={{ backgroundColor: '#e63946', padding: 12, borderRadius: 12, alignItems: 'center', marginTop: 10 }}
+        onPress={() => setShowPlacesModal(false)}
+      >
+        <Text style={{ color: '#fff', fontWeight: 'bold' }}>Close</Text>
+      </TouchableOpacity>
+
+    </View>
+  </View>
+</Modal>
     </View>
   );
 }
