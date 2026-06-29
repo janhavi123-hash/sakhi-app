@@ -26,7 +26,7 @@ SAKHI is a React Native mobile app for women's safety. It combines automatic SOS
 - Guardian opens link in browser and sees user moving in real time
 
 ### Audio Evidence Recording 🎙️
-- Auto-records 30 seconds of audio when SOS triggers
+- Auto-records 5 minutes of audio when SOS triggers
 - Saved locally as forensic evidence
 - Opens WhatsApp with audio file attached for guardian
 
@@ -46,6 +46,17 @@ SAKHI is a React Native mobile app for women's safety. It combines automatic SOS
 ### Guardian Management
 - Add/delete up to 5 guardians
 - Offline cache + Firebase Firestore sync
+
+- ## 📁 Project Structure
+sakhi-app/
+├── app/              → React Native screens (Expo Router)
+├── components/       → Reusable UI components  
+├── utils/            → Background services, SOS queue, storage
+├── config/           → Firebase configuration
+├── hooks/            → Custom React hooks
+├── constants/        → App-wide constants
+└── sakhi-backend/    → Node.js + Express backend
+                        (monorepo structure for single submission)
 
 ---
 
