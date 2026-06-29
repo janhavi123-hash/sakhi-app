@@ -1,50 +1,68 @@
-# Welcome to your Expo app 👋
+# SAKHI 🛡️ — Smart Women Safety & Emergency Response System
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+> *Because every woman deserves to feel safe.*
 
-## Get started
+SAKHI is a React Native mobile app for women's safety. It combines automatic SOS alerts, live location sharing, voice/shake/fall detection, and audio evidence recording into one intelligent safety companion.
 
-1. Install dependencies
+---
 
-   ```bash
-   npm install
-   ```
+## 🚨 Core Features
 
-2. Start the app
+### SOS System
+- One-tap SOS button with 5-second cancel window
+- Auto SMS to all guardians with live location link
+- Sequential auto-calling with fallback to next guardian
+- WhatsApp fallback if SMS fails (retry queue on reconnect)
 
-   ```bash
-   npx expo start
-   ```
+### Smart Detection Triggers
+- 🎙️ Voice trigger — say "help", "bachao", or "emergency"
+- 📳 Shake detection SOS
+- 🤸 Fall detection SOS
+- 🔋 Battery ≤20% auto alert to guardians
+- 📍 Geofence / safe zone exit alert
 
-In the output, you'll find options to open the app in a
+### Live Location Sharing 🗺️
+- Generates a live tracking link sent to guardians via SMS
+- Guardian opens link in browser and sees user moving in real time
 
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
+### Audio Evidence Recording 🎙️
+- Auto-records 30 seconds of audio when SOS triggers
+- Saved locally as forensic evidence
+- Opens WhatsApp with audio file attached for guardian
 
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
+### Safe Walk Timer
+- Set a timer for your walk; auto-triggers SOS if you don't check in
+- Works correctly even when app is minimized
 
-## Get a fresh project
+### Fake Call 📞
+- Simulates an incoming call with TTS conversation
+- Always shows latest guardian contacts
 
-When you're ready, run:
+### Live GPS Map 🗺️
+- Real-time location tracking with route trail
+- Destination search + walking route via OSRM
+- Nearby police stations and hospitals with one-tap call
 
-```bash
-npm run reset-project
-```
+### Guardian Management
+- Add/delete up to 5 guardians
+- Offline cache + Firebase Firestore sync
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+---
 
-## Learn more
+## 🛠️ Tech Stack
 
-To learn more about developing your project with Expo, look at the following resources:
+| Layer | Technology |
+|---|---|
+| Framework | React Native + Expo Router |
+| Language | TypeScript |
+| Auth & DB | Firebase Auth + Firestore |
+| Maps | react-native-maps, Overpass API, OSRM |
+| SMS | expo-sms |
+| Location | expo-location |
+| Audio | expo-av |
+| Speech | expo-speech-recognition |
+| Backend | Node.js + Express |
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+---
 
-## Join the community
-
-Join our community of developers creating universal apps.
-
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+*Built with ❤️ for women's safety.*
