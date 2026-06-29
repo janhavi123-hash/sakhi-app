@@ -1,10 +1,10 @@
 {
   "expo": {
-    "name": "sakhi-sapp",
+    "name": "SAKHI",
     "slug": "sakhi-sapp",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/images/icon.png",
+    "icon": "./assets/images/logo.png",
     "scheme": "sakhisapp",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
@@ -12,32 +12,29 @@
       "supportsTablet": true
     },
     "android": {
-  "googleServicesFile": "./google-services.json",
-  "targetSdkVersion":33,
- "permissions": [
-  "ACCESS_FINE_LOCATION",
-  "ACCESS_COARSE_LOCATION",
-  "ACCESS_BACKGROUND_LOCATION",
-  "SEND_SMS",
-  "RECEIVE_BOOT_COMPLETED",
-  "VIBRATE",
-  "READ_CONTACTS",
-  "CALL_PHONE",
-  "RECORD_AUDIO",
-  "CAMERA",
-  "ACTIVITY_RECOGNITION",
-  "BODY_SENSORS"
-],    
-  "config": {
-  "googleMaps": {
-    "apiKey": "AIzaSyBfyQQVjaToUVO93st3YGgQ0aEh_JbjawY"
-  }
-},
+      "googleServicesFile": "./google-services.json",
+      "permissions": [
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_BACKGROUND_LOCATION",
+        "SEND_SMS",
+        "RECEIVE_BOOT_COMPLETED",
+        "VIBRATE",
+        "READ_CONTACTS",
+        "CALL_PHONE",
+        "RECORD_AUDIO",
+        "CAMERA",
+        "ACTIVITY_RECOGNITION",
+        "BODY_SENSORS"
+      ],
+      "config": {
+        "googleMaps": {
+          "apiKey": "AIzaSyBfyQQVjaToUVO93st3YGgQ0aEh_JbjawY"
+        }
+      },
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
-        "foregroundImage": "./assets/images/android-icon-foreground.png",
-        "backgroundImage": "./assets/images/android-icon-background.png",
-        "monochromeImage": "./assets/images/android-icon-monochrome.png"
+        "foregroundImage": "./assets/images/logo.png",
+        "backgroundColor": "#0a2a4a"
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
@@ -45,17 +42,17 @@
     },
     "web": {
       "output": "static",
-      "favicon": "./assets/images/favicon.png"
+      "favicon": "./assets/images/logo.png"
     },
     "plugins": [
       "expo-router",
       [
         "expo-splash-screen",
         {
-          "image": "./assets/images/splash-icon.png",
+          "image": "./assets/images/logo.png",
           "imageWidth": 200,
           "resizeMode": "contain",
-          "backgroundColor": "#ffffff",
+          "backgroundColor": "#0a2a4a",
           "dark": {
             "backgroundColor": "#000000"
           }

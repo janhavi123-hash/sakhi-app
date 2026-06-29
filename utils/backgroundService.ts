@@ -8,6 +8,11 @@ import { auth, db } from '../config/firebase';
 import { collection, query, where, getDocs } from 'firebase/firestore';
 import { addToQueue, retryQueue, sendWhatsAppMessage, QueuedMessage } from './sosQueue';
 import NetInfo from '@react-native-community/netinfo';
+import { rtdb } from '../config/firebase';
+import { ref, set, remove } from 'firebase/database';
+import { Audio } from 'expo-av';
+import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { storage } from '../config/firebase';
 
 const SHAKE_THRESHOLD = 2.5;
 const FALL_FREE_FALL_THRESHOLD = 0.3;
@@ -24,6 +29,9 @@ let accelerometerSubscription: any = null;
 let batterySubscription: any = null;
 let locationSubscription: any = null;
 let isRunning = false;
+let liveTrackingInterval: any = null;
+let liveTrackingTimeout: any = null;
+let recordingInstance: Audio.Recording | null = null;
 
 let onTriggerCallback: ((reason: string) => void) | null = null;
 export const setTriggerCallback = (cb: (reason: string) => void) => {
@@ -84,6 +92,125 @@ const getDistance = (lat1: number, lon1: number, lat2: number, lon2: number): nu
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 };
 
+export const startLiveTracking = async (uid: string) => {
+  if (liveTrackingInterval) return; // already running
+
+  const writeLocation = async () => {
+    try {
+      const loc = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.High,
+      });
+      await set(ref(rtdb, `locations/${uid}`), {
+        lat: loc.coords.latitude,
+        lng: loc.coords.longitude,
+        timestamp: Date.now(),
+      });
+    } catch (e) {
+      console.log('Live tracking write error:', e);
+    }
+  };
+
+  await writeLocation(); // write immediately on SOS
+  liveTrackingInterval = setInterval(writeLocation, 5000); // then every 5s
+
+  // Auto-stop after 30 minutes
+  liveTrackingTimeout = setTimeout(() => {
+    stopLiveTracking(uid);
+  }, 30 * 60 * 1000);
+
+  console.log('📍 Live tracking started');
+};
+
+export const stopLiveTracking = async (uid: string) => {
+  if (liveTrackingInterval) {
+    clearInterval(liveTrackingInterval);
+    liveTrackingInterval = null;
+  }
+  if (liveTrackingTimeout) {
+    clearTimeout(liveTrackingTimeout);
+    liveTrackingTimeout = null;
+  }
+  try {
+    await remove(ref(rtdb, `locations/${uid}`));
+  } catch (e) {
+    console.log('Stop tracking error:', e);
+  }
+  console.log('🛑 Live tracking stopped');
+};
+
+export const startAudioEvidence = async (uid: string): Promise<string | null> => {
+  try {
+    const { granted } = await Audio.requestPermissionsAsync();
+    if (!granted) {
+      console.log('Audio permission denied');
+      return null;
+    }
+
+    await Audio.setAudioModeAsync({
+      allowsRecordingIOS: true,
+      playsInSilentModeIOS: true,
+    });
+
+    const { recording } = await Audio.Recording.createAsync(
+      Audio.RecordingOptionsPresets.HIGH_QUALITY
+    );
+    recordingInstance = recording;
+    console.log('🎙️ Audio evidence recording started - 5 mins');
+
+    // Stop after 5 minutes, upload to Cloudinary, send via WhatsApp
+    setTimeout(async () => {
+      try {
+        if (!recordingInstance) return;
+        await recordingInstance.stopAndUnloadAsync();
+        const uri = recordingInstance.getURI();
+        recordingInstance = null;
+        if (!uri) return;
+
+        console.log('🎙️ Recording complete, uploading to Cloudinary...');
+
+        // Upload to Cloudinary
+        const formData = new FormData();
+        formData.append('file', {
+          uri,
+          type: 'audio/m4a',
+          name: `evidence_${Date.now()}.m4a`,
+        } as any);
+        formData.append('upload_preset', 'sakhi_evidence');
+        formData.append('resource_type', 'raw');
+
+        const response = await fetch(
+          'https://api.cloudinary.com/v1_1/doryaq2rh/raw/upload',
+          { method: 'POST', body: formData }
+        );
+        const data = await response.json();
+        const audioUrl = data.secure_url;
+
+        console.log('✅ Audio uploaded:', audioUrl);
+
+      
+        // REPLACE with — send SMS with audio link instead of WhatsApp:
+const numbers = await getNumbers();
+if (numbers.length > 0) {
+  const audioMessage = `🚨 SAKHI Audio Evidence: ${audioUrl}`;
+  
+  // Use SMS — works reliably in background after 2 mins
+  await sendSMS(numbers, audioMessage);
+  
+  console.log('✅ Audio evidence link sent via SMS to all guardians');
+}
+      } catch (e) {
+        console.log('Audio upload error:', e);
+      }
+    }, 2 * 60 * 1000); // 2 minutes
+
+    return 'recording_started';
+  } catch (e) {
+    console.log('Audio evidence error:', e);
+    return null;
+  }
+};
+    
+
  export const triggerSOS = async (reason: string) => {
   try {
     let lat: number;
@@ -105,31 +232,31 @@ const getDistance = (lat1: number, lon1: number, lat2: number, lon2: number): nu
     const numbers = await getNumbers();
     if (!numbers.length) return;
 
-    const locationStr = `https://maps.google.com/?q=${lat},${lng}`;
-    const smsMessage = `🚨 SOS EMERGENCY! (${reason})\nI need immediate help!\nMy location:\n${locationStr}\n- Sent from SAKHI app`;
-    const whatsappMessage = `🚨 *SOS EMERGENCY!* (${reason})\nI need immediate help!\nMy location: ${locationStr}\n- Sent from SAKHI app`;
+    const user = auth.currentUser;
+const uid = user?.uid || 'unknown';
+// Start live tracking
+if (user) await startLiveTracking(uid);
+// Start audio evidence
+startAudioEvidence(uid); // don't await — runs in background
+console.log('UID:', uid); 
+
+const trackingLink = `https://sakhi-46fc5.web.app/track/?uid=${uid}`;
+const staticLocation = `https://maps.google.com/?q=${lat},${lng}`;
+
+const smsMessage = `🚨 SOS EMERGENCY! (${reason})\nI need immediate help!\n📍 Track me LIVE: ${trackingLink}\n(Static: ${staticLocation})\n- Sent from SAKHI app`;
+const whatsappMessage = `🚨 *SOS EMERGENCY!* (${reason})\nI need immediate help!\n📍 *Track me LIVE:* ${trackingLink}\n- Sent from SAKHI app`;
 
     // Step 1 — Send SMS first
     await sendSMS(numbers, smsMessage);
 
     // Step 2 — Queue WhatsApp for each guardian
     const net = await NetInfo.fetch();
-    if (net.isConnected) {
-  // Queue ALL numbers first, then open WhatsApp for first one only
-  // WhatsApp doesn't support multi-recipient — known limitation
-  // Send to first guardian directly, queue rest for manual retry
-  if (numbers.length > 0) {
-    await sendWhatsAppMessage(numbers[0], whatsappMessage);
+    // REPLACE with:
+if (net.isConnected) {
+  for (const phone of numbers) {
+    await sendWhatsAppMessage(phone, whatsappMessage);
   }
-  // Add remaining to queue so user can retry manually
-  for (const phone of numbers.slice(1)) {
-    await addToQueue('SOS', 'WHATSAPP_LOCATION_LINK', phone, {
-      lat,
-      lng,
-      message: whatsappMessage,
-    });
-  }
-} else {
+}else {
   for (const phone of numbers) {
     await addToQueue('SOS', 'WHATSAPP_LOCATION_LINK', phone, {
       lat,
