@@ -76,4 +76,9 @@ sakhi-app/
 
 ---
 
+## 📱 Download SAKHI App
+👉 [Download APK](https://expo.dev/accounts/janhavi.sonawane25compsceeduin/projects/sakhi-sapp/builds/f34b4d6b-6a71-47e1-a9f7-09d035c037a8)
+## 🎥 Demo Video
+👉 [Watch Demo](https://drive.google.com/file/d/1t9zOwEQTex-ZT2h02kxQiFq3C3-bCmrc/view?usp=sharing)
+
 *Built with ❤️ for women's safety.*
