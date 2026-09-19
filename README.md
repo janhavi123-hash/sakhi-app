@@ -77,7 +77,7 @@ sakhi-app/
 ---
 
 ## 📱 Download SAKHI App
-👉 [Download APK](https://drive.google.com/file/d/1l-xJx-cW-F3MYpBSqawRfwirRCITmtA8/view?usp=sharing)
+👉 [Download APK](https://drive.google.com/file/d/1BvMsI5EvUrnZcKZBOb89xPrfkzYKfrnN/view?usp=sharing)
 ## 🎥 Demo Video
 👉 [Watch Demo](https://drive.google.com/file/d/1zbDFSfCsdNT6qYXGZpGbOartYjxp8n8D/view?usp=sharing)
 
